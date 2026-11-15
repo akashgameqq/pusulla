@@ -1,0 +1,6 @@
+{
+  "name": "Pusula",
+  "description": "Kişisel gelişim asistanı: takvim tabanlı program takibi, kilo sayacı, görselden kalori analizi (Gemini, GPT, Claude, Groq ve yerel modeller) ve günlük alışkanlık koçu.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
