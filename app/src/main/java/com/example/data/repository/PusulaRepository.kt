@@ -2,12 +2,14 @@ package com.example.data.repository
 
 import android.content.Context
 import com.example.R
+import com.example.data.local.LocalOfflineStore
 import com.example.data.model.DailyWellness
 import com.example.data.model.MealLog
 import com.example.data.model.ScheduleItem
 import com.example.data.model.UserProfile
 import com.example.data.model.WeightLog
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.auth
 import com.google.firebase.firestore.DocumentSnapshot.ServerTimestampBehavior
@@ -21,24 +23,48 @@ import kotlinx.coroutines.flow.catch
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.tasks.await
 
-class PusulaRepository(
-    private val db: FirebaseFirestore,
-    private val auth: FirebaseAuth = Firebase.auth,
+class PusulaRepository private constructor(
+    private val db: FirebaseFirestore?,
+    private val auth: FirebaseAuth?,
+    private val localStore: LocalOfflineStore?,
 ) {
+    constructor(
+        db: FirebaseFirestore,
+        auth: FirebaseAuth = Firebase.auth,
+    ) : this(db = db, auth = auth, localStore = null)
+
     constructor(context: Context) : this(
-        FirebaseFirestore.getInstance(
-            context.applicationContext.getString(R.string.firestore_database_id)
-        )
+        db = if (FirebaseApp.getApps(context.applicationContext).isNotEmpty()) {
+            FirebaseFirestore.getInstance(
+                context.applicationContext.getString(R.string.firestore_database_id)
+            )
+        } else {
+            null
+        },
+        auth = if (FirebaseApp.getApps(context.applicationContext).isNotEmpty()) {
+            Firebase.auth
+        } else {
+            null
+        },
+        localStore = if (FirebaseApp.getApps(context.applicationContext).isEmpty()) {
+            LocalOfflineStore(context.applicationContext)
+        } else {
+            null
+        },
     )
 
+    private fun requireDb(): FirebaseFirestore =
+        db ?: throw IllegalStateException("Firestore yapılandırılmamış.")
+
     private fun requireUserId(): String {
-        return auth.currentUser?.uid
+        return auth?.currentUser?.uid
             ?: throw IllegalStateException("Devam etmek için Google hesabıyla giriş yapılmalıdır.")
     }
 
-    private fun userDoc(uid: String) = db.collection("users").document(uid)
+    private fun userDoc(uid: String) = requireDb().collection("users").document(uid)
 
     fun observeUserProfile(userId: String): Flow<UserProfile?> {
+        localStore?.let { return it.observeProfile() }
         val docRef = userDoc(userId)
         return docRef.snapshots()
             .map { snapshot ->
@@ -54,7 +80,7 @@ class PusulaRepository(
                     .firstOrNull()
                 if (firestoreError == null && error is CancellationException) throw error
                 val toLog = firestoreError ?: (error as? Exception)
-                if (toLog != null && auth.currentUser?.uid == userId) {
+                if (toLog != null && auth?.currentUser?.uid == userId) {
                     handleFirestoreError(toLog, OperationType.GET, docRef.path)
                 }
                 throw error
@@ -64,6 +90,10 @@ class PusulaRepository(
     suspend fun ensureUserProfile(
         displayName: String,
     ): Result<Unit> = runCatching {
+        localStore?.let {
+            it.ensureProfile("local-user", displayName)
+            return@runCatching
+        }
         val uid = requireUserId()
         val docRef = userDoc(uid)
         try {
@@ -93,6 +123,10 @@ class PusulaRepository(
     }
 
     suspend fun updateUserProfile(profile: UserProfile): Result<Unit> = runCatching {
+        localStore?.let {
+            it.updateProfile("local-user", profile)
+            return@runCatching
+        }
         val uid = requireUserId()
         val docRef = userDoc(uid)
         val existing = try {
@@ -142,6 +176,7 @@ class PusulaRepository(
     }
 
     fun observeScheduleItems(userId: String): Flow<List<ScheduleItem>> {
+        localStore?.let { return it.observeScheduleItems() }
         val colRef = userDoc(userId).collection("scheduleItems")
         return colRef.snapshots()
             .map { snapshot ->
@@ -154,7 +189,7 @@ class PusulaRepository(
                     .firstOrNull()
                 if (firestoreError == null && error is CancellationException) throw error
                 val toLog = firestoreError ?: (error as? Exception)
-                if (toLog != null && auth.currentUser?.uid == userId) {
+                if (toLog != null && auth?.currentUser?.uid == userId) {
                     handleFirestoreError(toLog, OperationType.LIST, colRef.path)
                 }
                 throw error
@@ -162,6 +197,7 @@ class PusulaRepository(
     }
 
     suspend fun getScheduleItem(itemId: String): Result<ScheduleItem?> = runCatching {
+        localStore?.let { return@runCatching it.getScheduleItem(itemId) }
         val uid = requireUserId()
         val docRef = userDoc(uid).collection("scheduleItems").document(itemId)
         try {
@@ -176,6 +212,7 @@ class PusulaRepository(
     }
 
     suspend fun upsertScheduleItem(item: ScheduleItem): Result<String> = runCatching {
+        localStore?.let { return@runCatching it.upsertScheduleItem("local-user", item) }
         val uid = requireUserId()
         val colRef = userDoc(uid).collection("scheduleItems")
         val safeTitle = item.title.trim().take(140)
@@ -243,6 +280,10 @@ class PusulaRepository(
     }
 
     suspend fun toggleScheduleCompletion(item: ScheduleItem): Result<Unit> = runCatching {
+        localStore?.let {
+            it.toggleScheduleCompletion(item)
+            return@runCatching
+        }
         val uid = requireUserId()
         require(item.id.isNotBlank()) { "Öğe kimliği gerekli." }
         val docRef = userDoc(uid).collection("scheduleItems").document(item.id)
@@ -263,6 +304,10 @@ class PusulaRepository(
     }
 
     suspend fun deleteScheduleItem(itemId: String): Result<Unit> = runCatching {
+        localStore?.let {
+            it.deleteScheduleItem(itemId)
+            return@runCatching
+        }
         val uid = requireUserId()
         val docRef = userDoc(uid).collection("scheduleItems").document(itemId)
         try {
@@ -276,6 +321,7 @@ class PusulaRepository(
     }
 
     fun observeWeightLogs(userId: String): Flow<List<WeightLog>> {
+        localStore?.let { return it.observeWeightLogs() }
         val colRef = userDoc(userId).collection("weightLogs")
         return colRef.snapshots()
             .map { snapshot ->
@@ -288,7 +334,7 @@ class PusulaRepository(
                     .firstOrNull()
                 if (firestoreError == null && error is CancellationException) throw error
                 val toLog = firestoreError ?: (error as? Exception)
-                if (toLog != null && auth.currentUser?.uid == userId) {
+                if (toLog != null && auth?.currentUser?.uid == userId) {
                     handleFirestoreError(toLog, OperationType.LIST, colRef.path)
                 }
                 throw error
@@ -301,6 +347,9 @@ class PusulaRepository(
         note: String,
         dateKey: String,
     ): Result<String> = runCatching {
+        localStore?.let {
+            return@runCatching it.addWeightLog("local-user", weightKg, bodyFatPercent, note, dateKey)
+        }
         val uid = requireUserId()
         val colRef = userDoc(uid).collection("weightLogs")
         val docRef = colRef.document()
@@ -337,6 +386,10 @@ class PusulaRepository(
     }
 
     suspend fun deleteWeightLog(logId: String): Result<Unit> = runCatching {
+        localStore?.let {
+            it.deleteWeightLog(logId)
+            return@runCatching
+        }
         val uid = requireUserId()
         val docRef = userDoc(uid).collection("weightLogs").document(logId)
         try {
@@ -350,6 +403,7 @@ class PusulaRepository(
     }
 
     fun observeMealLogs(userId: String): Flow<List<MealLog>> {
+        localStore?.let { return it.observeMealLogs() }
         val colRef = userDoc(userId).collection("mealLogs")
         return colRef.snapshots()
             .map { snapshot ->
@@ -362,7 +416,7 @@ class PusulaRepository(
                     .firstOrNull()
                 if (firestoreError == null && error is CancellationException) throw error
                 val toLog = firestoreError ?: (error as? Exception)
-                if (toLog != null && auth.currentUser?.uid == userId) {
+                if (toLog != null && auth?.currentUser?.uid == userId) {
                     handleFirestoreError(toLog, OperationType.LIST, colRef.path)
                 }
                 throw error
@@ -370,6 +424,7 @@ class PusulaRepository(
     }
 
     suspend fun upsertMealLog(meal: MealLog): Result<String> = runCatching {
+        localStore?.let { return@runCatching it.upsertMealLog("local-user", meal) }
         val uid = requireUserId()
         val colRef = userDoc(uid).collection("mealLogs")
         val safeFood = meal.foodName.trim().take(140)
@@ -432,6 +487,10 @@ class PusulaRepository(
     }
 
     suspend fun deleteMealLog(mealId: String): Result<Unit> = runCatching {
+        localStore?.let {
+            it.deleteMealLog(mealId)
+            return@runCatching
+        }
         val uid = requireUserId()
         val docRef = userDoc(uid).collection("mealLogs").document(mealId)
         try {
@@ -445,6 +504,7 @@ class PusulaRepository(
     }
 
     fun observeDailyWellness(userId: String, dateKey: String): Flow<DailyWellness?> {
+        localStore?.let { return it.observeDailyWellness(dateKey) }
         val docRef = userDoc(userId).collection("dailyWellness").document(dateKey)
         return docRef.snapshots()
             .map { snapshot ->
@@ -460,7 +520,7 @@ class PusulaRepository(
                     .firstOrNull()
                 if (firestoreError == null && error is CancellationException) throw error
                 val toLog = firestoreError ?: (error as? Exception)
-                if (toLog != null && auth.currentUser?.uid == userId) {
+                if (toLog != null && auth?.currentUser?.uid == userId) {
                     handleFirestoreError(toLog, OperationType.GET, docRef.path)
                 }
                 throw error
@@ -468,6 +528,10 @@ class PusulaRepository(
     }
 
     suspend fun upsertDailyWellness(wellness: DailyWellness): Result<Unit> = runCatching {
+        localStore?.let {
+            it.upsertDailyWellness("local-user", wellness)
+            return@runCatching
+        }
         val uid = requireUserId()
         val docRef = userDoc(uid).collection("dailyWellness").document(wellness.dateKey)
         val safeWater = wellness.waterMl.coerceIn(0, 15000)

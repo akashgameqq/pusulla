@@ -107,7 +107,7 @@ fun SettingsHubScreen(
     onStartLocalDownload: (String) -> Unit,
     onCancelLocalDownload: (String) -> Unit,
     onDeleteLocalModel: (String) -> Unit,
-    onSignOut: () -> Unit,
+    onSignOut: (() -> Unit)?,
 ) {
     val context = LocalContext.current
     val profile = (profileState as? DataUiState.Success)?.data
@@ -177,7 +177,7 @@ fun SettingsHubScreen(
 private fun ProfileCard(
     profile: UserProfile?,
     onEditProfile: () -> Unit,
-    onSignOut: () -> Unit,
+    onSignOut: (() -> Unit)?,
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
@@ -221,14 +221,29 @@ private fun ProfileCard(
                 GoalBadge("Hedef Kilo", "${String.format(Locale.US, "%.1f", profile?.targetWeightKg ?: 70.0)} kg", Modifier.weight(1f))
             }
 
-            OutlinedButton(
-                onClick = onSignOut,
-                modifier = Modifier.fillMaxWidth().height(48.dp).testTag("sign_out_button"),
-                shape = RoundedCornerShape(14.dp),
-            ) {
-                Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
-                Spacer(Modifier.width(8.dp))
-                Text("Google Hesabından Çıkış Yap")
+            if (onSignOut != null) {
+                OutlinedButton(
+                    onClick = onSignOut,
+                    modifier = Modifier.fillMaxWidth().height(48.dp).testTag("sign_out_button"),
+                    shape = RoundedCornerShape(14.dp),
+                ) {
+                    Icon(Icons.AutoMirrored.Filled.Logout, contentDescription = null, modifier = Modifier.size(18.dp))
+                    Spacer(Modifier.width(8.dp))
+                    Text("Google Hesabından Çıkış Yap")
+                }
+            } else {
+                Surface(
+                    color = MaterialTheme.colorScheme.secondaryContainer.copy(alpha = 0.6f),
+                    shape = RoundedCornerShape(12.dp),
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(
+                        text = "Yerel Cihaz Modu Aktif (Verileriniz cihazda güvenle saklanır)",
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSecondaryContainer,
+                        modifier = Modifier.padding(horizontal = 12.dp, vertical = 10.dp),
+                    )
+                }
             }
         }
     }

@@ -13,6 +13,7 @@ import com.example.data.model.MealLog
 import com.example.data.model.ScheduleItem
 import com.example.data.model.UserProfile
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.ai.ai
 import com.google.firebase.ai.type.Schema
 import com.google.firebase.ai.type.content
@@ -205,6 +206,9 @@ class MultiProviderAiService(
 
         return when (provider) {
             AiProviderType.GEMINI_BUILTIN -> {
+                require(runCatching { FirebaseApp.getInstance() }.isSuccess) {
+                    "Yerleşik Firebase AI için google-services.json gereklidir. Ayarlar'dan kendi Gemini, OpenAI, Claude, Groq anahtarınızı girin veya Yerel Model seçin."
+                }
                 val response = withTimeout(60_000L) {
                     geminiChatModel.generateContent("$systemPrompt\n\nKullanıcı Verisi:\n$contextSummary\n\nSoru: $userMessage")
                 }
@@ -299,6 +303,9 @@ class MultiProviderAiService(
 
         val rawJson = when (provider) {
             AiProviderType.GEMINI_BUILTIN -> {
+                require(runCatching { FirebaseApp.getInstance() }.isSuccess) {
+                    "Yerleşik Firebase AI için google-services.json gereklidir. Ayarlar'dan kendi API anahtarınızı veya Yerel Modeli seçin."
+                }
                 val res = withTimeout(60_000L) {
                     geminiPlanModel.generateContent(prompt)
                 }
@@ -380,6 +387,9 @@ class MultiProviderAiService(
         bitmap: Bitmap,
         userHint: String,
     ): FoodVisionAnalysisResult {
+        require(runCatching { FirebaseApp.getInstance() }.isSuccess) {
+            "Yerleşik Firebase AI için google-services.json gereklidir. Tarama penceresinden veya Ayarlar'dan Gemini, OpenAI, Claude, Groq anahtarı ya da Yerel Model seçebilirsiniz."
+        }
         val hintClause = if (userHint.isNotBlank()) "Kullanıcı ipucu: \"$userHint\"." else ""
         val prompt = content {
             image(bitmap)

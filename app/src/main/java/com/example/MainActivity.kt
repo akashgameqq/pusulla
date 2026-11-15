@@ -86,12 +86,14 @@ import com.example.ui.screens.TodayScreen
 import com.example.ui.theme.PusulaTheme
 import com.example.ui.viewmodel.PusulaViewModel
 import com.google.firebase.Firebase
+import com.google.firebase.FirebaseApp
 import com.google.firebase.auth.FirebaseAuth
 import com.google.firebase.auth.FirebaseUser
 import com.google.firebase.auth.auth
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.callbackFlow
+import kotlinx.coroutines.flow.flowOf
 import kotlinx.coroutines.launch
 
 private enum class AppTab(
@@ -148,24 +150,30 @@ class MainActivity : ComponentActivity() {
         val preferencesStore = AiPreferencesStore(applicationContext)
 
         setContent {
+            val context = LocalContext.current
+            val isFirebaseAvailable = remember { FirebaseApp.getApps(context).isNotEmpty() }
             val aiSettings by preferencesStore.settingsFlow.collectAsStateWithLifecycle(
                 initialValue = AiSettingsState()
             )
-            val currentUser by remember { Firebase.auth.authStateFlow() }
-                .collectAsStateWithLifecycle(initialValue = Firebase.auth.currentUser)
+            val currentUser by remember(isFirebaseAvailable) {
+                if (isFirebaseAvailable) Firebase.auth.authStateFlow() else flowOf(null)
+            }.collectAsStateWithLifecycle(
+                initialValue = if (isFirebaseAvailable) Firebase.auth.currentUser else null
+            )
 
             val scope = rememberCoroutineScope()
-            val context = LocalContext.current
             val credentialManager = remember { CredentialManager.create(context) }
 
-            LaunchedEffect(Unit) {
-                attemptAutoSignIn(
-                    context = context,
-                    credentialManager = credentialManager,
-                    onAuthSuccess = {},
-                    onUnauthenticated = {},
-                    scope = scope,
-                )
+            LaunchedEffect(isFirebaseAvailable) {
+                if (isFirebaseAvailable) {
+                    attemptAutoSignIn(
+                        context = context,
+                        credentialManager = credentialManager,
+                        onAuthSuccess = {},
+                        onUnauthenticated = {},
+                        scope = scope,
+                    )
+                }
             }
 
             PusulaTheme(
@@ -178,6 +186,12 @@ class MainActivity : ComponentActivity() {
                         onFinished = {
                             scope.launch { preferencesStore.setOnboardingCompleted(true) }
                         }
+                    )
+                } else if (!isFirebaseAvailable) {
+                    MainShellScreen(
+                        currentUserId = "local-user",
+                        displayName = "Yerel Kullanıcı",
+                        onSignOut = null
                     )
                 } else {
                     val user = currentUser
@@ -213,7 +227,7 @@ class MainActivity : ComponentActivity() {
 private fun MainShellScreen(
     currentUserId: String,
     displayName: String,
-    onSignOut: () -> Unit,
+    onSignOut: (() -> Unit)?,
 ) {
     val context = LocalContext.current
     val viewModel: PusulaViewModel = viewModel(
